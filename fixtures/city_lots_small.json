@@ -1,0 +1,4 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+  { "type": "Feature", "properties": { "MAPBLKLOT": "0001001", "BLKLOT": "0001001", "BLOCK_NUM": "0001", "LOT_NUM": "001", "FROM_ST": "0", "TO_ST": "0", "STREET": "UNKNOWN", "ST_TYPE": null, "ODD_EVEN": "E" }, "geometry": { "type": "Polygon", "coordinates": [ [ [ "a", "b", "c" ], [ "d", "e", "f" ], [ "g", "h", "i" ], [ "j", "k", "l" ] ] ] } } ] }

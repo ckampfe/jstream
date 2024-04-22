@@ -1,7 +1,3 @@
-#[cfg(feature = "jemalloc")]
-#[global_allocator]
-static ALLOC: jemalloc::Jemalloc = jemalloc::Jemalloc;
-
 use clap::Parser;
 use jstream::path_value_writer::json_pointer::{
     Options as JSONPointerWriterOptions, Writer as JSONPointerWriter,

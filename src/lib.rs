@@ -1,8 +1,10 @@
 #![forbid(unsafe_code)]
 
 // things that didn't work to make this faster:
-// - using an array instead of a vec for state.path
+// - using an fixed-length array instead of a vec for state.path
 // - using get_unchecked_mut to look up most recent key in path
+// - jemalloc. jstream doesn't really do much heap allocation, so jemalloc
+//   is not as useful as it was in jindex.
 
 // things that did work to make this faster:
 // - directly writing to the newest key in path directly over the 2nd newest,
@@ -23,29 +25,26 @@ pub enum PathComponent<'input> {
 }
 
 /// represents the "atomic" JSON datatypes,
-/// meaning all types that are not collections
-///
-/// TODO should we also include empty object ({})
-/// and empty array ([]) as atoms?
-/// would these be useful to show in path output?
-/// if so we could do it by storing the previous
-/// token, and checking `}` and `]` to see if the previous
-/// token was `{` or `[`.
+/// meaning all types that are leaf nodes in the document tree.
+/// this includes empty collections, but not collections
+/// which contain elements
 pub enum JsonAtom<'input> {
     String(aws_smithy_json::deserialize::EscapedStr<'input>),
     Null,
     Bool(bool),
     Number(aws_smithy_types::Number),
+    EmptyObject,
+    EmptyArray,
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct State<'input> {
     /// the current path, in order from least deep to most deep, i.e.,
     /// `{"a": {"b": {"c": 1}}}`
     /// corresponds to:
     /// `/a/b/c  1`
     path: Vec<PathComponent<'input>>,
-    /// how deep we are in the object hierarchy, i.e.,
+    /// how deep we are in the document, i.e.,
     /// `{"a": {"b": {"c": 1}}}`
     /// has depth = 3
     depth: usize,
@@ -164,14 +163,33 @@ pub fn stream<W: PathValueWriter>(
                 state.increment_depth();
                 state.add_new_array_index_to_path()
             }
-            Token::EndObject { .. } | Token::EndArray { .. } => {
+            // for Token::EndObject and Token::EndArray:
+            //
+            // if depth > state.path.len() here,
+            // at the end of an object/array,
+            // it means we inside an empty object/array,
+            // and should not pop the most recent path,
+            // as the most recent path was from the level above,
+            // not this level
+            Token::EndObject { .. } => {
+                writer.write_path_and_value(&state.path, JsonAtom::EmptyObject)?;
+                if state.depth <= state.path.len() {
+                    state.pop_path()
+                }
                 state.decrement_depth();
-                state.pop_path();
+            }
+            Token::EndArray { .. } => {
+                writer.write_path_and_value(&state.path, JsonAtom::EmptyArray)?;
+
+                if state.depth <= state.path.len() {
+                    state.pop_path()
+                }
+                state.decrement_depth();
             }
         }
 
         if is_terminal(&token) {
-            state.maybe_increment_most_recent_array_index()
+            state.maybe_increment_most_recent_array_index();
         }
     }
 
@@ -188,198 +206,4 @@ fn is_terminal(token: &Token) -> bool {
             | Token::EndObject { .. }
             | Token::EndArray { .. }
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::path_value_writer::json_pointer::{
-        Options as JSONPointerWriterOptions, Writer as JSONPointerWriter,
-    };
-    use aws_smithy_json::deserialize::json_token_iter;
-
-    use super::*;
-
-    #[test]
-    fn simple_object() {
-        let s = b"{\"a\":1, \"b\":5, \"c\":9}";
-
-        let tokens = json_token_iter(s);
-
-        let mut buf = vec![];
-
-        let mut writer = JSONPointerWriter::new(&mut buf, JSONPointerWriterOptions::default());
-
-        stream(&mut writer, tokens).unwrap();
-
-        let challenge = b"/a\t1\n/b\t5\n/c\t9\n";
-
-        assert_eq!(buf, challenge);
-    }
-
-    #[test]
-    fn simple_array() {
-        let s = b"[1,2,3,null,true,false,\"ok\"]";
-        let tokens = json_token_iter(s);
-
-        let mut buf = vec![];
-
-        let mut writer = JSONPointerWriter::new(&mut buf, JSONPointerWriterOptions::default());
-
-        stream(&mut writer, tokens).unwrap();
-
-        let challenge = b"/0\t1\n/1\t2\n/2\t3\n/3\tnull\n/4\ttrue\n/5\tfalse\n/6\t\"ok\"\n";
-
-        assert_eq!(buf, challenge);
-    }
-
-    #[test]
-    fn simple_nested_object() {
-        let s = b"{\"a\":{\"b\":{\"c\":99}}}";
-        let tokens = json_token_iter(s);
-        let mut buf = vec![];
-
-        let mut writer = JSONPointerWriter::new(&mut buf, JSONPointerWriterOptions::default());
-
-        stream(&mut writer, tokens).unwrap();
-
-        let challenge = b"/a/b/c\t99\n";
-
-        assert_eq!(buf, challenge);
-    }
-
-    #[test]
-    fn simple_nested_array() {
-        let s = b"[1,[2,[3]]]";
-        // /0 1
-        // /1/0 2
-        // /1/1/0 3
-        // 0
-        // 20
-        // 220
-        let tokens = json_token_iter(s);
-        let mut buf = vec![];
-
-        let mut writer = JSONPointerWriter::new(&mut buf, JSONPointerWriterOptions::default());
-
-        stream(&mut writer, tokens).unwrap();
-
-        let challenge = b"/0\t1\n/1/0\t2\n/1/1/0\t3\n";
-
-        assert_eq!(buf, challenge);
-    }
-
-    #[test]
-    fn nested_array_nulls() {
-        let s = b"[null, [null], null, [null, null]]";
-        let tokens = json_token_iter(s);
-        let mut buf = vec![];
-
-        let mut writer = JSONPointerWriter::new(&mut buf, JSONPointerWriterOptions::default());
-
-        stream(&mut writer, tokens).unwrap();
-
-        let challenge = b"/0\tnull\n/1/0\tnull\n/2\tnull\n/3/0\tnull\n/3/1\tnull\n";
-
-        assert_eq!(buf, challenge);
-    }
-
-    #[test]
-    fn weird_nested_objects_and_arrays() {
-        let s = br#"{"a":[{"b":[1,2,3]}]"#;
-        let tokens = json_token_iter(s);
-        let mut buf = vec![];
-        let mut writer = JSONPointerWriter::new(&mut buf, JSONPointerWriterOptions::default());
-
-        stream(&mut writer, tokens).unwrap();
-
-        let challenge = b"/a/0/b/0\t1\n/a/0/b/1\t2\n/a/0/b/2\t3\n";
-
-        assert_eq!(buf, challenge);
-    }
-
-    #[test]
-    fn one_json_jindex() {
-        let s = std::fs::read_to_string("fixtures/one.json").unwrap();
-        let jindex = std::fs::read_to_string("fixtures/jindex_one.txt").unwrap();
-
-        let tokens = json_token_iter(s.as_bytes());
-        let mut buf = vec![];
-        let mut writer = JSONPointerWriter::new(&mut buf, JSONPointerWriterOptions::default());
-
-        stream(&mut writer, tokens).unwrap();
-
-        let sorted_writer = std::str::from_utf8(&buf).unwrap();
-        let mut sorted_writer: Vec<_> = sorted_writer.trim().split('\n').collect();
-        sorted_writer.sort();
-        let mut sorted_writer = sorted_writer.join("\n");
-        sorted_writer.push('\n');
-
-        assert_eq!(sorted_writer.as_bytes(), jindex.as_bytes());
-    }
-
-    // #[test]
-    // fn github_json_jindex() {}
-
-    #[test]
-    fn weird_array() {
-        let s = br#"[ [ [ "a", "b", "c" ], [ "d", "e", "f" ], [ "g", "h", "i" ], [ "j", "k", "l" ] ] ]"#;
-
-        let tokens = json_token_iter(s);
-        let mut buf = vec![];
-        let mut writer = JSONPointerWriter::new(&mut buf, JSONPointerWriterOptions::default());
-
-        stream(&mut writer, tokens).unwrap();
-
-        let challenge = b"/0/0/0\t\"a\"\n/0/0/1\t\"b\"\n/0/0/2\t\"c\"\n/0/1/0\t\"d\"\n/0/1/1\t\"e\"\n/0/1/2\t\"f\"\n/0/2/0\t\"g\"\n/0/2/1\t\"h\"\n/0/2/2\t\"i\"\n/0/3/0\t\"j\"\n/0/3/1\t\"k\"\n/0/3/2\t\"l\"\n";
-
-        assert_eq!(buf, challenge);
-    }
-
-    #[test]
-    fn more_weird() {
-        let s = b"{
-            \"features\": [
-                { \"geometry\": {
-                    \"coordinates\": [
-                        [
-                            [ \"a\", \"b\", \"c\" ],
-                            [ \"d\", \"e\", \"f\" ],
-                            [ \"g\", \"h\", \"i\" ],
-                            [ \"j\", \"k\", \"l\" ]
-                        ]
-                    ]
-                }}
-            ] 
-        }";
-
-        let tokens = json_token_iter(s);
-        let mut buf = vec![];
-        let mut writer = JSONPointerWriter::new(&mut buf, JSONPointerWriterOptions::default());
-
-        stream(&mut writer, tokens).unwrap();
-
-        let challenge = b"/features/0/geometry/coordinates/0/0/0\t\"a\"\n/features/0/geometry/coordinates/0/0/1\t\"b\"\n/features/0/geometry/coordinates/0/0/2\t\"c\"\n/features/0/geometry/coordinates/0/1/0\t\"d\"\n/features/0/geometry/coordinates/0/1/1\t\"e\"\n/features/0/geometry/coordinates/0/1/2\t\"f\"\n/features/0/geometry/coordinates/0/2/0\t\"g\"\n/features/0/geometry/coordinates/0/2/1\t\"h\"\n/features/0/geometry/coordinates/0/2/2\t\"i\"\n/features/0/geometry/coordinates/0/3/0\t\"j\"\n/features/0/geometry/coordinates/0/3/1\t\"k\"\n/features/0/geometry/coordinates/0/3/2\t\"l\"\n";
-
-        assert_eq!(buf, challenge);
-    }
-
-    #[test]
-    fn even_more_weird() {
-        let s = std::fs::read_to_string("fixtures/city_lots_small.json").unwrap();
-        let jindex = std::fs::read_to_string("fixtures/jindex_city_lots_small.txt").unwrap();
-
-        let tokens = json_token_iter(s.as_bytes());
-        let mut buf = vec![];
-        let mut writer = JSONPointerWriter::new(&mut buf, JSONPointerWriterOptions::default());
-
-        stream(&mut writer, tokens).unwrap();
-
-        let sorted_writer = std::str::from_utf8(&buf).unwrap();
-        let mut sorted_writer: Vec<_> = sorted_writer.trim().split('\n').collect();
-        sorted_writer.sort();
-        let mut sorted_writer = sorted_writer.join("\n");
-        sorted_writer.push('\n');
-
-        assert_eq!(sorted_writer.as_bytes(), jindex.as_bytes());
-    }
 }

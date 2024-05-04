@@ -103,14 +103,19 @@ fn write_path<W: Write>(writer: &mut W, path_components: &[PathComponent]) -> st
     for item in path_components {
         writer.write_all(b"/")?;
 
-        let mut b = itoa::Buffer::new();
-        let as_bytes = match item {
+        match item {
             // TODO test this with keys that need to be escaped,
             // we may need to use the escaped form. not clear.
-            PathComponent::Key(k) => k.as_escaped_str().as_bytes(),
-            PathComponent::Index(index) => b.format(*index).as_bytes(),
+            PathComponent::Key(k) => {
+                let as_bytes = k.as_escaped_str().as_bytes();
+                writer.write_all(as_bytes)?;
+            }
+            PathComponent::Index(index) => {
+                let mut b = itoa::Buffer::new();
+                let as_bytes = b.format(*index).as_bytes();
+                writer.write_all(as_bytes)?;
+            }
         };
-        writer.write_all(as_bytes)?;
     }
 
     Ok(())

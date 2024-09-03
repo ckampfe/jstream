@@ -35,26 +35,7 @@ impl<'writer, W: Write> PathValueWriter for Writer<'writer, W> {
                 self.writer.write_all(self.options.separator.as_bytes())?;
                 self.writer.write_all(b"\"")?;
                 self.writer.write_all(s.as_escaped_str().as_bytes())?;
-                self.writer.write_all(b"\"")?;
-                self.writer.write_all(b"\n")?;
-            }
-            JsonAtom::Null => {
-                write_path(self.writer, path)?;
-                self.writer.write_all(self.options.separator.as_bytes())?;
-                self.writer.write_all(b"null")?;
-                self.writer.write_all(b"\n")?;
-            }
-            JsonAtom::Bool(b) => {
-                write_path(self.writer, path)?;
-                self.writer.write_all(self.options.separator.as_bytes())?;
-
-                if b {
-                    self.writer.write_all(b"true")?;
-                } else {
-                    self.writer.write_all(b"false")?;
-                }
-
-                self.writer.write_all(b"\n")?;
+                self.writer.write_all(b"\"\n")?;
             }
             JsonAtom::Number(n) => {
                 write_path(self.writer, path)?;
@@ -77,21 +58,34 @@ impl<'writer, W: Write> PathValueWriter for Writer<'writer, W> {
 
                 self.writer.write_all(b"\n")?;
             }
+            JsonAtom::Bool(b) => {
+                write_path(self.writer, path)?;
+                self.writer.write_all(self.options.separator.as_bytes())?;
+
+                if b {
+                    self.writer.write_all(b"true\n")?;
+                } else {
+                    self.writer.write_all(b"false\n")?;
+                }
+            }
             JsonAtom::EmptyObject => {
                 if self.options.write_empty_collections {
                     write_path(self.writer, path)?;
                     self.writer.write_all(self.options.separator.as_bytes())?;
-                    self.writer.write_all(b"{}")?;
-                    self.writer.write_all(b"\n")?;
+                    self.writer.write_all(b"{}\n")?;
                 }
             }
             JsonAtom::EmptyArray => {
                 if self.options.write_empty_collections {
                     write_path(self.writer, path)?;
                     self.writer.write_all(self.options.separator.as_bytes())?;
-                    self.writer.write_all(b"[]")?;
-                    self.writer.write_all(b"\n")?;
+                    self.writer.write_all(b"[]\n")?;
                 }
+            }
+            JsonAtom::Null => {
+                write_path(self.writer, path)?;
+                self.writer.write_all(self.options.separator.as_bytes())?;
+                self.writer.write_all(b"null\n")?;
             }
         }
 

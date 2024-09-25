@@ -13,7 +13,7 @@ See [src/path_value_writer/json_pointer.rs](https://github.com/ckampfe/jstream/b
 Latest unstable (HEAD) release from source:
 
 ```
-$ cargo install --git https://github.com/ckampfe/jindex
+$ cargo install --git https://github.com/ckampfe/jstream
 ```
 
 ## Examples

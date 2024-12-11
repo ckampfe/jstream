@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-aws-smithy-json = "0.60"
+aws-smithy-json = "0.61"
 aws-smithy-types = "1"
 clap = { version = "4", features = ["derive"] }
 itoa = "1"

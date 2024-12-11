@@ -11,7 +11,7 @@
 //   in the case that we are inside an object and moving from one key to the next,
 //   rather than popping the 2nd newest and pushing the newest
 
-use aws_smithy_json::deserialize::{JsonTokenIterator, Token};
+use aws_smithy_json::deserialize::Token;
 use path_value_writer::PathValueWriter;
 
 pub mod path_value_writer;
@@ -131,13 +131,10 @@ impl<'input> State<'input> {
     }
 }
 
-// TODO:
-// should tokens be moved or &mut?
-pub fn stream<W: PathValueWriter>(
-    writer: &mut W,
-    tokens: JsonTokenIterator,
-) -> std::io::Result<()> {
+pub fn stream<W: PathValueWriter>(buf: &[u8], writer: &mut W) -> std::io::Result<()> {
     let mut state = State::default();
+
+    let tokens = aws_smithy_json::deserialize::json_token_iter(buf);
 
     for token in tokens {
         let token = token.map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;

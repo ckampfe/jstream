@@ -20,11 +20,7 @@ fn json_pointer_benchmark(c: &mut Criterion) {
             let options = JSONPointerWriterOptions::default();
             let mut sink = JSONPointerWriter::new(&mut writer, options);
             // jindex(&mut sink, black_box(&json)).unwrap()
-            stream(
-                &mut sink,
-                black_box(aws_smithy_json::deserialize::json_token_iter(&buf)),
-            )
-            .unwrap();
+            stream(black_box(&buf), &mut sink).unwrap();
         })
     });
 
@@ -43,11 +39,7 @@ fn json_pointer_benchmark(c: &mut Criterion) {
             let mut writer = vec![];
             let options = JSONPointerWriterOptions::default();
             let mut sink = JSONPointerWriter::new(&mut writer, options);
-            stream(
-                &mut sink,
-                black_box(aws_smithy_json::deserialize::json_token_iter(&buf)),
-            )
-            .unwrap()
+            stream(black_box(&buf), &mut sink).unwrap()
         })
     });
 
@@ -60,11 +52,7 @@ fn json_pointer_benchmark(c: &mut Criterion) {
             let mut writer = vec![];
             let options = JSONPointerWriterOptions::default();
             let mut sink = JSONPointerWriter::new(&mut writer, options);
-            stream(
-                &mut sink,
-                black_box(aws_smithy_json::deserialize::json_token_iter(&buf)),
-            )
-            .unwrap()
+            stream(black_box(&buf), &mut sink).unwrap()
         })
     });
 

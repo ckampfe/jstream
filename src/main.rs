@@ -38,16 +38,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let buf = ManuallyDrop::new(buf);
 
-    // TODO should tokens also be ManuallyDrop?
-    // it doesn't seem to show up in benchmarks when run against citylots.json
-    let tokens = aws_smithy_json::deserialize::json_token_iter(&buf);
-
     let mut stdout = BufWriter::new(std::io::stdout().lock());
 
     let mut json_pointer_writer =
         JSONPointerWriter::new(&mut stdout, JSONPointerWriterOptions::default());
 
-    jstream::stream(&mut json_pointer_writer, tokens)?;
+    jstream::stream(&buf, &mut json_pointer_writer)?;
 
     Ok(())
 }
